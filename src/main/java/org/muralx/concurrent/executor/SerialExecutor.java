@@ -2,6 +2,7 @@ package org.muralx.concurrent.executor;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Executor;
@@ -67,7 +68,12 @@ public class SerialExecutor extends AbstractExecutorService {
                 try {
                     currentCommand = commands.pollFirst();
                     if (currentCommand != null && state < TERMINATED) {
-                        underlyingExecutor.execute(this);
+                        try {
+                            underlyingExecutor.execute(this);
+                        } catch (Exception e) {
+                            //The underlying executor may have been shutdown.
+                            //We would need a kind of handler for this.
+                        }
                     } else {
                         if (state == SHUTDOWN) {
                             state = TERMINATED;
@@ -120,17 +126,26 @@ public class SerialExecutor extends AbstractExecutorService {
     }
 
     public void shutdown() {
-        state = SHUTDOWN;
+        lock.lock();
+        try {
+            if (state == RUNNING) {
+                state = SHUTDOWN;
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     public List<Runnable> shutdownNow() {
-        state = SHUTDOWN;
         lock.lock();
         try {
-            state = TERMINATED;
-            ArrayList<Runnable> result = new ArrayList<Runnable>(commands);
-            commands.clear();
-            return result;
+            if (state < TERMINATED) {
+                state = TERMINATED;
+                ArrayList<Runnable> result = new ArrayList<Runnable>(commands);
+                commands.clear();
+                return result;
+            }
+            return Collections.<Runnable>emptyList();
         } finally {
             lock.unlock();
         }
