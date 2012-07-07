@@ -73,10 +73,14 @@ public class SerialExecutor extends AbstractExecutorService {
                         } catch (Exception e) {
                             //The underlying executor may have been shutdown.
                             //We would need a kind of handler for this.
+                            //Terminate this executor and clean pending command for now
+                            currentCommand = null;
+                            commands.clear();
+                            transitionToTerminated();
                         }
                     } else {
                         if (state == SHUTDOWN) {
-                            state = TERMINATED;
+                            transitionToTerminated();
                         }
                     }
                 } finally {
@@ -129,7 +133,11 @@ public class SerialExecutor extends AbstractExecutorService {
         lock.lock();
         try {
             if (state == RUNNING) {
-                state = SHUTDOWN;
+                if (currentCommand == null && commands.isEmpty()) {
+                    transitionToTerminated();
+                } else {
+                    state = SHUTDOWN;
+                }
             }
         } finally {
             lock.unlock();
@@ -140,7 +148,7 @@ public class SerialExecutor extends AbstractExecutorService {
         lock.lock();
         try {
             if (state < TERMINATED) {
-                state = TERMINATED;
+                transitionToTerminated();
                 ArrayList<Runnable> result = new ArrayList<Runnable>(commands);
                 commands.clear();
                 return result;
@@ -170,5 +178,13 @@ public class SerialExecutor extends AbstractExecutorService {
             lock.unlock();
         }
         return isTerminated();
+    }
+    
+    /*
+     * Lock must me held when calling this method
+     */
+    private void transitionToTerminated() {
+        state = TERMINATED;
+        termination.signalAll();
     }
 }
